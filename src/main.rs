@@ -1,6 +1,6 @@
 use atrium_api::com::atproto::sync::subscribe_repos;
 use chrono::Local;
-use firehose::{
+use firehose_client::{
   firehose::{handlers::commit, Firehose},
   subscriptions::{self, handlers::Message},
   wss_client::{WssClient, XrpcUri, XrpcWssClient},
@@ -19,12 +19,12 @@ async fn main() {
   loop {
     // Loop to reconnect every time the connection is lost.
     if let Err(e) = connect(&mut last_cursor, &xrpc_uri).await {
-      eprintln!("Error: {:?}", e);
+      eprintln!("Error: {e:?}");
     }
   }
 }
 
-/// Connects to ATProto to receive real-time messages.
+/// Connects to `ATProto` to receive real-time messages.
 async fn connect(
   last_cursor: &mut Option<i64>,
   xrpc_uri: &XrpcUri<'_>,
@@ -62,7 +62,7 @@ async fn connect(
             ops,
           } = c;
 
-          ops.into_iter().for_each(|r| {
+          for r in ops {
             let commit::Operation {
               action,
               path,
@@ -71,14 +71,14 @@ async fn connect(
             if let Some(record) = record {
               println!(
                 "
-                  \n\n################  {} @ {}  ################\n\
-                  - Repository (User DID): {}\n\
-                  - Path: {path}\n\
-                  - Commit CID: {}\n\
-                  - Flagged as \"too big\"? {too_big}\n\
-                  //-----------------------------------------------------------------------//\n\n\
-                  {}
-                  ",
+                \n\n################  {} @ {}  ################\n\
+                - Repository (User DID): {}\n\
+                - Path: {path}\n\
+                - Commit CID: {}\n\
+                - Flagged as \"too big\"? {too_big}\n\
+                //-----------------------------------------------------------------------//\n\n\
+                {}
+                ",
                 action.to_uppercase(),
                 record.created_at.as_ref().with_timezone(&Local),
                 repo.as_str(),
@@ -88,19 +88,19 @@ async fn connect(
             } else {
               println!(
                 "
-                  \n\n#################################  {}  ##################################\n\
-                  - Repository (User DID): {}\n\
-                  - Path: {path}\n\
-                  - Commit CID: {}\n\
-                  - Flagged as \"too big\"? {too_big}\n\
-                  //-----------------------------------------------------------------------//\n\n\
-                  ",
+                \n\n#################################  {}  ##################################\n\
+                - Repository (User DID): {}\n\
+                - Path: {path}\n\
+                - Commit CID: {}\n\
+                - Flagged as \"too big\"? {too_big}\n\
+                //-----------------------------------------------------------------------//\n\n\
+                ",
                 action.to_uppercase(),
                 repo.as_str(),
                 commit.0
               );
             }
-          });
+          }
         }
         _ => {}
       }

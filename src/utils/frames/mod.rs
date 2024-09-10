@@ -32,7 +32,7 @@ enum FrameHeader {
 impl TryFrom<Ipld> for FrameHeader {
   type Error = anyhow::Error;
 
-  fn try_from(value: Ipld) -> Result<Self, <FrameHeader as TryFrom<Ipld>>::Error> {
+  fn try_from(value: Ipld) -> Result<Self, <Self as TryFrom<Ipld>>::Error> {
     if let Ipld::Map(map) = value {
       if let Some(Ipld::Integer(i)) = map.get("op") {
         match i {
@@ -42,9 +42,9 @@ impl TryFrom<Ipld> for FrameHeader {
             } else {
               None
             };
-            return Ok(FrameHeader::Message(t));
+            return Ok(Self::Message(t));
           }
-          -1 => return Ok(FrameHeader::Error),
+          -1 => return Ok(Self::Error),
           _ => {}
         }
       }
@@ -73,7 +73,7 @@ pub struct ErrorFrame {
 impl TryFrom<Vec<u8>> for Frame {
   type Error = anyhow::Error;
 
-  fn try_from(value: Vec<u8>) -> Result<Self, <Frame as TryFrom<Vec<u8>>>::Error> {
+  fn try_from(value: Vec<u8>) -> Result<Self, <Self as TryFrom<Vec<u8>>>::Error> {
     let mut cursor = Cursor::new(value);
     let mut deserializer = Deserializer::from_reader(IoReader::new(&mut cursor));
     let header: Ipld = serde::Deserialize::deserialize(&mut deserializer)?;
@@ -81,7 +81,7 @@ impl TryFrom<Vec<u8>> for Frame {
     // Error means the stream did not end (trailing data), which implies a second IPLD (in this case, the message body).
     // If the stream did end, the message body is empty, in which case we bail.
     let body = if deserializer.end().is_err() {
-      let pos = cursor.position() as usize;
+      let pos = usize::try_from(cursor.position())?;
       cursor.get_mut().drain(pos..).collect()
     } else {
       // TODO: Proper error handling
@@ -89,9 +89,9 @@ impl TryFrom<Vec<u8>> for Frame {
     };
 
     if let FrameHeader::Message(t) = FrameHeader::try_from(header)? {
-      Ok(Frame::Message(t, MessageFrame { body }))
+      Ok(Self::Message(t, MessageFrame { body }))
     } else {
-      Ok(Frame::Error(ErrorFrame {}))
+      Ok(Self::Error(ErrorFrame {}))
     }
   }
 }

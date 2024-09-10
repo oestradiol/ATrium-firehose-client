@@ -91,11 +91,10 @@ fn process_op(map: &mut BTreeMap<Cid, Vec<u8>>, op: Object<RepoOpData>) -> Opera
 
   // Finds in the map the `Record` with the operation's CID and deserializes it.
   // If the item is not found, returns `None`.
-  let record = if let Some(item) = cid.and_then(|c| map.get_mut(&c.0)) {
-    serde_ipld_dagcbor::from_reader::<Record, _>(Cursor::new(item)).ok()
-  } else {
-    None
-  };
+  let record = cid.and_then(|c| map.get_mut(&c.0)).map_or_else(
+    || None,
+    |item| serde_ipld_dagcbor::from_reader::<Record, _>(Cursor::new(item)).ok(),
+  );
 
   Operation {
     action,

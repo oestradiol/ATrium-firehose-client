@@ -25,7 +25,7 @@ impl Repositories {
     connection: WebSocketStream<MaybeTlsStream<TcpStream>>,
     handler: H,
   ) -> impl Stream<Item = Option<(i64, HandledMessage<H>)>> {
-    Repositories::handle_conn(connection, handler)
+    Self::handle_conn(connection, handler)
   }
 }
 impl Subscription for Repositories {

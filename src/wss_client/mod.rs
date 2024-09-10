@@ -10,7 +10,7 @@ use atrium_xrpc::{
   http::{Request, Uri},
   types::Header,
 };
-use bon::bon;
+use bon::Builder;
 use serde::Serialize;
 use tokio_tungstenite::{
   connect_async, tungstenite::handshake::client::generate_key, MaybeTlsStream, WebSocketStream,
@@ -19,7 +19,7 @@ use tokio_tungstenite::{
 /// An abstract WSS client.
 ///
 /// # Returns
-/// [`anyhow::Result`](anyhow::Result)<[`Subscription`](crate::subscription::Subscription)>
+/// [`anyhow::Result`](anyhow::Result)<[`Subscription`](crate::subscriptions::Subscription)>
 pub trait WssClient<E> {
   /// Send an XRPC request and return the response.
   fn connect(
@@ -39,16 +39,10 @@ pub trait WssClient<E> {
   }
 }
 
+#[derive(Builder)]
 pub struct XrpcWssClient<'a, P: Serialize> {
   xrpc_uri: XrpcUri<'a>,
   params: Option<P>,
-}
-#[bon]
-impl<P: Serialize> XrpcWssClient<'_, P> {
-  #[builder]
-  pub fn new(xrpc_uri: XrpcUri<'__i0>, params: Option<P>) -> Self {
-    Self { xrpc_uri, params }
-  }
 }
 
 impl<P: Serialize + Send + Sync> WssClient<anyhow::Error> for XrpcWssClient<'_, P> {
@@ -68,8 +62,7 @@ impl<P: Serialize + Send + Sync> WssClient<anyhow::Error> for XrpcWssClient<'_, 
       .as_str();
     let host = authority
       .find('@')
-      .map(|idx| authority.split_at(idx + 1).1)
-      .unwrap_or_else(|| authority);
+      .map_or_else(|| authority, |idx| authority.split_at(idx + 1).1);
 
     // Request
     let mut request = Request::builder()
