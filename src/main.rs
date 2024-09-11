@@ -1,9 +1,20 @@
 use atrium_api::com::atproto::sync::subscribe_repos;
 use chrono::Local;
 use firehose_client::{
-  firehose::{handlers::commit, Firehose},
-  subscriptions::{self, handlers::Message},
-  wss_client::{WssClient, XrpcUri, XrpcWssClient},
+  atrium_xrpc_wss::{
+    client::{WssClient, XrpcUri},
+    subscriptions::{
+      repositories::{ProcessedData, Repositories},
+      ProcessedPayload,
+    },
+  },
+  atrium_xrpc_wss_client::{
+    client::XrpcWssClient,
+    subscriptions::repositories::{
+      firehose::Firehose,
+      type_defs::{Operation, ProcessedCommitData},
+    },
+  },
 };
 use futures::StreamExt;
 
@@ -24,7 +35,7 @@ async fn main() {
   }
 }
 
-/// Connects to `ATProto` to receive real-time messages.
+/// Connects to `ATProto` to receive real-time data.
 async fn connect(
   last_cursor: &mut Option<i64>,
   xrpc_uri: &XrpcUri<'_>,
@@ -35,74 +46,70 @@ async fn connect(
   };
 
   // Build a new WSS XRPC Client then connects to the API.
-  let connection = XrpcWssClient::builder()
+  let client = XrpcWssClient::builder()
     .xrpc_uri(xrpc_uri.clone())
     .params(params)
-    .build()
-    .connect()
-    .await?;
+    .build();
+  let connection = client.connect().await?;
 
   // Builds a new subscription from the connection;
-  let mut subscription = subscriptions::Repositories::builder()
+  let mut subscription = Repositories::builder()
     .connection(connection)
     .handler(Firehose) // Using the implemented `Firehose` handler.
     .build();
 
-  // Receive messages by calling `StreamExt::next()`.
-  while let Some(message) = subscription.next().await {
-    if let Some((cursor, message)) = message {
-      *last_cursor = Some(cursor);
+  // Receive payloads by calling `StreamExt::next()`.
+  while let Some(payload) = subscription.next().await {
+    let ProcessedPayload { seq: cursor, data } = payload;
+    *last_cursor = Some(cursor);
+    println!("Cursor: {:?}", *last_cursor);
 
-      match message {
-        Message::Commit(c) => {
-          let commit::ProcessedData {
-            too_big,
-            repo,
-            commit,
-            ops,
-          } = c;
+    if let ProcessedData::Commit(c) = data {
+      let ProcessedCommitData {
+        too_big,
+        repo,
+        commit,
+        ops,
+      } = c;
 
-          for r in ops {
-            let commit::Operation {
-              action,
-              path,
-              record,
-            } = r;
-            if let Some(record) = record {
-              println!(
-                "
-                \n\n################  {} @ {}  ################\n\
-                - Repository (User DID): {}\n\
-                - Path: {path}\n\
-                - Commit CID: {}\n\
-                - Flagged as \"too big\"? {too_big}\n\
-                //-----------------------------------------------------------------------//\n\n\
-                {}
-                ",
-                action.to_uppercase(),
-                record.created_at.as_ref().with_timezone(&Local),
-                repo.as_str(),
-                commit.0,
-                record.text
-              );
-            } else {
-              println!(
-                "
-                \n\n#################################  {}  ##################################\n\
-                - Repository (User DID): {}\n\
-                - Path: {path}\n\
-                - Commit CID: {}\n\
-                - Flagged as \"too big\"? {too_big}\n\
-                //-----------------------------------------------------------------------//\n\n\
-                ",
-                action.to_uppercase(),
-                repo.as_str(),
-                commit.0
-              );
-            }
-          }
+      for r in ops {
+        let Operation {
+          action,
+          path,
+          record,
+        } = r;
+        if let Some(record) = record {
+          println!(
+            "
+            \n\n################  {} @ {}  ################\n\
+            - Repository (User DID): {}\n\
+            - Path: {path}\n\
+            - Commit CID: {}\n\
+            - Flagged as \"too big\"? {too_big}\n\
+            //-----------------------------------------------------------------------//\n\n\
+            {}
+            ",
+            action.to_uppercase(),
+            record.created_at.as_ref().with_timezone(&Local),
+            repo.as_str(),
+            commit.0,
+            record.text
+          );
+        } else {
+          println!(
+            "
+            \n\n#################################  {}  ##################################\n\
+            - Repository (User DID): {}\n\
+            - Path: {path}\n\
+            - Commit CID: {}\n\
+            - Flagged as \"too big\"? {too_big}\n\
+            //-----------------------------------------------------------------------//\n\n\
+            ",
+            action.to_uppercase(),
+            repo.as_str(),
+            commit.0
+          );
         }
-        _ => {}
       }
     }
   }

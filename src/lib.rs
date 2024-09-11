@@ -1,4 +1,2 @@
-pub mod firehose;
-pub mod subscriptions;
-pub mod utils;
-pub mod wss_client;
+pub mod atrium_xrpc_wss;
+pub mod atrium_xrpc_wss_client;

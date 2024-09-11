@@ -1,3 +1,4 @@
+/// The URI for the XRPC `WebSocket` connection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct XrpcUri<'a> {
   base_uri: &'a str,

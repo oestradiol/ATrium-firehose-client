@@ -21,7 +21,9 @@ fn deserialize_message_frame_header() {
   let result = FrameHeader::try_from(ipld);
   assert_eq!(
     result.expect("failed to deserialize"),
-    FrameHeader::Message(Some(String::from("#commit")))
+    FrameHeader::Message {
+      t: String::from("#commit")
+    }
   );
 }
 

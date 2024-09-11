@@ -446,6 +446,7 @@ dependencies = [
  "serde",
  "serde_html_form",
  "serde_ipld_dagcbor",
+ "thiserror",
  "tokio",
  "tokio-tungstenite",
  "trait-variant",
