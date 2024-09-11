@@ -33,6 +33,7 @@ pub trait ConnectionHandler {
 /// A trait that defines a subscription.
 /// It should be implemented by any struct that wants to handle a connection.
 /// The `ConnectionPayload` type parameter is the type of the payload that will be received through the connection stream.
+/// The `Error` type parameter is the type of the error that the specific subscription can return, following the lexicon.
 pub trait Subscription<ConnectionPayload, Error: 'static + Send + Sync + Debug> {
   /// The `handle_connection` method should be implemented to handle the connection.
   ///

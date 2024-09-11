@@ -21,63 +21,75 @@ impl Subscription<WssResult, repositories::Error> for Repositories<WssResult> {
     // Builds a new async stream that will deserialize the packets sent through the
     // TCP tunnel and then yield the results processed by the handler back to the caller.
     let stream = stream! {
-      // `Some(Ok(ws_message))` means the connection is still open and the received payload was valid.
-      // If either of these conditions is false, we should cut the connection.
-      while let Some(Ok(ws_message)) = connection.next().await {
-        if let Message::Binary(data) = ws_message {
-          match Frame::try_from(data) {
-            Ok(Frame::Message { t, data: payload }) => {
-              match handler.handle_payload(t, payload).await {
-                Ok(Some(res)) => yield Ok(res),
-                Ok(None) => {}, // Payload was ignored by Handler.
-                Err(e) => {
-                  // "Invalid framing or invalid DAG-CBOR encoding are hard errors,
-                  //  and the client should drop the entire connection instead of skipping the frame."
-                  // https://atproto.com/specs/event-stream
+      loop {
+        match connection.next().await {
+          None => break, // Server dropped connection
+          Some(Err(e)) => {
+            // "Invalid framing or invalid DAG-CBOR encoding are hard errors,
+            //  and the client should drop the entire connection instead of skipping the frame."
+            // https://atproto.com/specs/event-stream
 
-                  // TODO: Add tracing crate logging.
-                  eprintln!("Invalid payload: {e:?}. Dropping connection...");
-                  yield Err(SubscriptionError::Abort("Received invalid payload".to_string()));
-                  break;
-                },
-              }
-            },
-            Ok(Frame::Error { error, message }) => {
-              eprintln!("Error Frame. {error}. Message: {message:?}");
-              // TODO: Handle error frames.
-              // yield Err(SubscriptionError::Other(repositories::Error::ConsumerTooSlow));
-              // yield Err(SubscriptionError::Other(repositories::Error::FutureCursor));
-              break;
-            },
-            Err(frames::Error::UnknownFrameType(ipld)) => {
-              // "Clients should ignore frames with headers that have unknown op or t values.
-              //  Unknown fields in both headers and payloads should be ignored."
-              // https://atproto.com/specs/event-stream
-
-              // TODO: Add tracing crate logging.
-              eprintln!("Unknown frame type: {ipld:?}. Ignoring...");
-            },
-            Err(frames::Error::EmptyPayload(ipld)) => {
-              // "Invalid framing or invalid DAG-CBOR encoding are hard frames::errors,
-              //  and the client should drop the entire connection instead of skipping the frame."
-              // https://atproto.com/specs/event-stream
-
-              // TODO: Add tracing crate logging.
-              eprintln!("Invalid payload for header: {ipld:?}. Payload was empty. Dropping connection...");
-              yield Err(SubscriptionError::Abort("Received invalid payload".to_string()));
-              break;
-            },
-            Err(frames::Error::IpldDecoding(e)) => {
-              // "Invalid framing or invalid DAG-CBOR encoding are hard errors,
-              //  and the client should drop the entire connection instead of skipping the frame."
-              // https://atproto.com/specs/event-stream
-
-              // TODO: Add tracing crate logging.
-              eprintln!("Frame was invalid: {e:?}. Dropping connection...");
-              yield Err(SubscriptionError::Abort("Received frame was invalid".to_string()));
-              break;
-            },
+            // TODO: Add tracing crate logging.
+            eprintln!("Invalid payload: {e:?}. Dropping connection...");
+            yield Err(SubscriptionError::Abort("Received invalid payload".to_string()));
+            break;
           }
+          Some(Ok(Message::Binary(data))) => {
+            match Frame::try_from(data) {
+              Ok(Frame::Message { t, data: payload }) => {
+                match handler.handle_payload(t, payload).await {
+                  Ok(Some(res)) => yield Ok(res),
+                  Ok(None) => {}, // Payload was ignored by Handler.
+                  Err(e) => {
+                    // "Invalid framing or invalid DAG-CBOR encoding are hard errors,
+                    //  and the client should drop the entire connection instead of skipping the frame."
+                    // https://atproto.com/specs/event-stream
+  
+                    // TODO: Add tracing crate logging.
+                    eprintln!("Invalid payload: {e:?}. Dropping connection...");
+                    yield Err(SubscriptionError::Abort("Received invalid payload".to_string()));
+                    break;
+                  },
+                }
+              },
+              Ok(Frame::Error { error, message }) => {
+                eprintln!("Error Frame. {error}. Message: {message:?}");
+                // TODO: Handle error frames.
+                // yield Err(SubscriptionError::Other(repositories::Error::ConsumerTooSlow));
+                // yield Err(SubscriptionError::Other(repositories::Error::FutureCursor));
+                break;
+              },
+              Err(frames::Error::EmptyPayload(ipld)) => {
+                // "Invalid framing or invalid DAG-CBOR encoding are hard frames::errors,
+                //  and the client should drop the entire connection instead of skipping the frame."
+                // https://atproto.com/specs/event-stream
+  
+                // TODO: Add tracing crate logging.
+                eprintln!("Empty payload for header: {ipld:?}. Dropping connection...");
+                yield Err(SubscriptionError::Abort("Received empty payload".to_string()));
+                break;
+              },
+              Err(frames::Error::IpldDecoding(e)) => {
+                // "Invalid framing or invalid DAG-CBOR encoding are hard errors,
+                //  and the client should drop the entire connection instead of skipping the frame."
+                // https://atproto.com/specs/event-stream
+  
+                // TODO: Add tracing crate logging.
+                eprintln!("Frame was invalid: {e:?}. Dropping connection...");
+                yield Err(SubscriptionError::Abort("Received frame was invalid".to_string()));
+                break;
+              },
+              Err(frames::Error::UnknownFrameType(ipld)) => {
+                // "Clients should ignore frames with headers that have unknown op or t values.
+                //  Unknown fields in both headers and payloads should be ignored."
+                // https://atproto.com/specs/event-stream
+  
+                // TODO: Add tracing crate logging.
+                eprintln!("Unknown frame type: {ipld:?}. Ignoring...");
+              },
+            }
+          }
+          _ => {}, // Ignore other message types.
         }
       }
     };
