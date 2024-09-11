@@ -1,26 +1,23 @@
 //! This file defines the types used in the Firehose handler.
 
 use atrium_api::{
-  app::bsky::feed::post::Record,
+  record::KnownRecord,
   types::{string::Did, CidLink},
 };
 
 // region: Commit
 #[derive(Debug)]
 pub struct ProcessedCommitData {
-  pub too_big: bool,
   pub repo: Did,
   pub commit: CidLink,
-  pub ops: Vec<Operation>,
+  // `ops` can be `None` if the commit is marked as `too_big`.
+  pub ops: Option<Vec<Operation>>,
 }
 #[derive(Debug)]
 pub struct Operation {
   pub action: String,
   pub path: String,
-  // Some(Ok(Record)) - the record was found and successfully deserialized
-  // Some(Err(Cid)) - the record was found but could not be deserialized
-  // None - this operation did not have an associated record
-  pub record: Option<Record>,
+  pub record: Option<KnownRecord>,
 }
 // endregion: Commit
 

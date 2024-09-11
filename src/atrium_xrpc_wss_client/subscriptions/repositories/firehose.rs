@@ -1,8 +1,8 @@
 use std::{collections::BTreeMap, io::Cursor};
 
 use atrium_api::{
-  app::bsky::feed::post::Record,
   com::atproto::sync::subscribe_repos::{self, CommitData, RepoOpData},
+  record::KnownRecord,
   types::Object,
 };
 use futures::io::Cursor as FutCursor;
@@ -19,7 +19,7 @@ use crate::atrium_xrpc_wss::subscriptions::{
 pub enum HandlingError {
   #[error("CAR Decoding error: {0}")]
   CarDecoding(#[from] rs_car::CarDecodeError),
-  #[error("Ipld Decoding error: {0}")]
+  #[error("IPLD Decoding error: {0}")]
   IpldDecoding(#[from] serde_ipld_dagcbor::DecodeError<std::io::Error>),
 }
 
@@ -65,7 +65,7 @@ impl ConnectionHandler for Firehose {
       _ => {
         // "Clients should ignore frames with headers that have unknown op or t values.
         //  Unknown fields in both headers and payloads should be ignored."
-        // https://atproto.com/specs/event-stream#streaming-wire-protocol-v0
+        // https://atproto.com/specs/event-stream
         return Ok(None);
       }
     };
@@ -80,43 +80,42 @@ impl Handler for Firehose {
     &self,
     payload: subscribe_repos::Commit,
   ) -> Result<Option<ProcessedPayload<Self::ProcessedCommitData>>, Self::HandlingError> {
-    let Object {
-      data:
-        CommitData {
-          seq,
-          too_big,
-          repo,
-          commit,
-          ops,
-          blocks,
-          ..
-        },
+    let CommitData {
+      seq,
+      too_big,
+      repo,
+      commit,
+      ops,
+      blocks,
       ..
-    } = payload;
+    } = payload.data;
 
-    // We read all the blocks from the CAR file and store them in a map
-    // so that we can look up the data for each operation by its CID.
-    let mut cursor = FutCursor::new(blocks);
-    let mut map = rs_car::car_read_all(&mut cursor, true)
-      .await?
-      .0
-      .into_iter()
-      .map(compat_cid)
-      .collect::<BTreeMap<_, _>>();
+    // If it is too big, the blocks and ops are not sent, so we skip the processing.
+    let ops_opt = if too_big {
+      None
+    } else {
+      // We read all the blocks from the CAR file and store them in a map
+      // so that we can look up the data for each operation by its CID.
+      let mut cursor = FutCursor::new(blocks);
+      let mut map = rs_car::car_read_all(&mut cursor, true)
+        .await?
+        .0
+        .into_iter()
+        .map(compat_cid)
+        .collect::<BTreeMap<_, _>>();
 
-    // "Invalid framing or invalid DAG-CBOR encoding are hard errors,
-    //  and the client should drop the entire connection instead of skipping the frame."
-    // https://atproto.com/specs/event-stream#streaming-wire-protocol-v0
-    // Hence why we don't treat the error as an `Option` here.
-    let ops = process_ops(ops, &mut map)?;
+      // "Invalid framing or invalid DAG-CBOR encoding are hard errors,
+      //  and the client should drop the entire connection instead of skipping the frame."
+      // https://atproto.com/specs/event-stream
+      Some(process_ops(ops, &mut map)?)
+    };
 
     Ok(Some(ProcessedPayload {
       seq,
       data: Self::ProcessedCommitData {
-        too_big,
         repo,
         commit,
-        ops,
+        ops: ops_opt,
       },
     }))
   }
@@ -173,7 +172,7 @@ impl Handler for Firehose {
 // Transmute is here because the version of the `rs_car` crate for `cid` is 0.10.1 whereas
 // the `ilpd_core` crate is 0.11.1. Should work regardless, given that the Cid type's
 // memory layout was not changed between the two versions. Temporary fix.
-// TODO: Find a way to fix the version compatibility issue.
+// TODO: Find a better way to fix the version compatibility issue.
 fn compat_cid((cid, item): (rs_car::Cid, Vec<u8>)) -> (ipld_core::cid::Cid, Vec<u8>) {
   (unsafe { std::mem::transmute::<_, Cid>(cid) }, item)
 }
@@ -194,17 +193,14 @@ fn process_op(
   map: &mut BTreeMap<Cid, Vec<u8>>,
   op: Object<RepoOpData>,
 ) -> Result<Operation, serde_ipld_dagcbor::DecodeError<std::io::Error>> {
-  let Object {
-    data: RepoOpData { action, path, cid },
-    ..
-  } = op;
+  let RepoOpData { action, path, cid } = op.data;
 
   // Finds in the map the `Record` with the operation's CID and deserializes it.
   // If the item is not found, returns `None`.
   let record = match cid.as_ref().and_then(|c| map.get_mut(&c.0)) {
-    // TODO: Not every Record is a `feed` record. Figure this out, then remove the `.ok()`,
-    // that is here just so we can run this for now without dropping every connection.
-    Some(item) => serde_ipld_dagcbor::from_reader::<Record, _>(Cursor::new(item)).ok(),
+    Some(item) => Some(serde_ipld_dagcbor::from_reader::<KnownRecord, _>(
+      Cursor::new(item),
+    )?),
     None => None,
   };
 

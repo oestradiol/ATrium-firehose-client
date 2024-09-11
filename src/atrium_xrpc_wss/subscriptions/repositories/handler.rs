@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use atrium_api::com::atproto::sync::subscribe_repos;
 
 use crate::atrium_xrpc_wss::subscriptions::ProcessedPayload;
@@ -34,15 +36,15 @@ pub enum ProcessedData<C, I0, A, H, M, T, I1> {
 /// handle all the different payload types that the subscription can send.
 /// Since the final desired result data type might change for each case, the
 /// trait is generic, and the implementor must define the data type for each
-/// payload type they pretend to use. The same goes for the implementations
-/// of each processing method, as the algorithm may vary.
+/// payload they pretend to use. The same goes for the implementations of
+/// each processing method, as the algorithm may vary.
 pub trait Handler: ConnectionHandler {
   type ProcessedCommitData;
   /// Processes a payload of type `#commit`.
   fn process_commit(
     &self,
     payload: subscribe_repos::Commit,
-  ) -> impl std::future::Future<
+  ) -> impl Future<
     Output = Result<Option<ProcessedPayload<Self::ProcessedCommitData>>, Self::HandlingError>,
   > {
     // Default implementation always returns `None`, meaning the implementation decided to ignore the payload.
@@ -54,7 +56,7 @@ pub trait Handler: ConnectionHandler {
   fn process_identity(
     &self,
     payload: subscribe_repos::Identity,
-  ) -> impl std::future::Future<
+  ) -> impl Future<
     Output = Result<Option<ProcessedPayload<Self::ProcessedIdentityData>>, Self::HandlingError>,
   > {
     // Default implementation always returns `None`, meaning the implementation decided to ignore the payload.
@@ -66,7 +68,7 @@ pub trait Handler: ConnectionHandler {
   fn process_account(
     &self,
     payload: subscribe_repos::Account,
-  ) -> impl std::future::Future<
+  ) -> impl Future<
     Output = Result<Option<ProcessedPayload<Self::ProcessedAccountData>>, Self::HandlingError>,
   > {
     // Default implementation always returns `None`, meaning the implementation decided to ignore the payload.
@@ -78,7 +80,7 @@ pub trait Handler: ConnectionHandler {
   fn process_handle(
     &self,
     payload: subscribe_repos::Handle,
-  ) -> impl std::future::Future<
+  ) -> impl Future<
     Output = Result<Option<ProcessedPayload<Self::ProcessedHandleData>>, Self::HandlingError>,
   > {
     // Default implementation always returns `None`, meaning the implementation decided to ignore the payload.
@@ -90,7 +92,7 @@ pub trait Handler: ConnectionHandler {
   fn process_migrate(
     &self,
     payload: subscribe_repos::Migrate,
-  ) -> impl std::future::Future<
+  ) -> impl Future<
     Output = Result<Option<ProcessedPayload<Self::ProcessedMigrateData>>, Self::HandlingError>,
   > {
     // Default implementation always returns `None`, meaning the implementation decided to ignore the payload.
@@ -102,7 +104,7 @@ pub trait Handler: ConnectionHandler {
   fn process_tombstone(
     &self,
     payload: subscribe_repos::Tombstone,
-  ) -> impl std::future::Future<
+  ) -> impl Future<
     Output = Result<Option<ProcessedPayload<Self::ProcessedTombstoneData>>, Self::HandlingError>,
   > {
     // Default implementation always returns `None`, meaning the implementation decided to ignore the payload.
@@ -114,9 +116,8 @@ pub trait Handler: ConnectionHandler {
   fn process_info(
     &self,
     payload: subscribe_repos::Info,
-  ) -> impl std::future::Future<
-    Output = Result<Option<ProcessedPayload<Self::ProcessedInfoData>>, Self::HandlingError>,
-  > {
+  ) -> impl Future<Output = Result<Option<ProcessedPayload<Self::ProcessedInfoData>>, Self::HandlingError>>
+  {
     // Default implementation always returns `None`, meaning the implementation decided to ignore the payload.
     async { Ok(None) }
   }

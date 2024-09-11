@@ -1,5 +1,5 @@
 //! This file defines the [`FrameHeader`] and [`Frame`] types, which are used to parse the payloads sent by the subscription through the event stream.
-//! You can read more about the specs for these types in the [`ATProto documentation`](https://atproto.com/specs/event-stream#streaming-wire-protocol-v0)
+//! You can read more about the specs for these types in the [`ATProto documentation`](https://atproto.com/specs/event-stream)
 
 #[cfg(test)]
 mod tests;
@@ -13,7 +13,7 @@ use std::io::Cursor;
 /// An error type for this crate.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-  #[error("Invalid frame type. Header: {0:?}")]
+  #[error("Unknown frame type. Header: {0:?}")]
   UnknownFrameType(Ipld),
   #[error("Payload was empty. Header: {0:?}")]
   EmptyPayload(Ipld),

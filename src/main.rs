@@ -1,11 +1,10 @@
 use atrium_api::com::atproto::sync::subscribe_repos;
-use chrono::Local;
 use firehose_client::{
   atrium_xrpc_wss::{
     client::{WssClient, XrpcUri},
     subscriptions::{
-      repositories::{ProcessedData, Repositories},
-      ProcessedPayload,
+      repositories::{Error, ProcessedData, Repositories},
+      SubscriptionError,
     },
   },
   atrium_xrpc_wss_client::{
@@ -29,6 +28,8 @@ async fn main() {
   let mut last_cursor = None;
   loop {
     // Loop to reconnect every time the connection is lost.
+    // Do not do this in production. This is just for demonstration purposes.
+    // Instead, you should handle the error variant
     if let Err(e) = connect(&mut last_cursor, &xrpc_uri).await {
       eprintln!("Error: {e:?}");
     }
@@ -45,7 +46,7 @@ async fn connect(
     cursor: *last_cursor,
   };
 
-  // Build a new WSS XRPC Client then connects to the API.
+  // Build a new XRPC WSS Client then connects to the API.
   let client = XrpcWssClient::builder()
     .xrpc_uri(xrpc_uri.clone())
     .params(params)
@@ -60,55 +61,61 @@ async fn connect(
 
   // Receive payloads by calling `StreamExt::next()`.
   while let Some(payload) = subscription.next().await {
-    let ProcessedPayload { seq: cursor, data } = payload;
-    *last_cursor = Some(cursor);
-    println!("Cursor: {:?}", *last_cursor);
+    let data = match payload {
+      Ok(payload) => {
+        *last_cursor = Some(payload.seq);
+        payload.data
+      }
+      Err(SubscriptionError::Abort(err)) => {
+        // TODO: Add tracing crate logging.
+        eprintln!("Aborted: {err}");
+        *last_cursor = None;
+        break;
+      }
+      Err(SubscriptionError::Other(Error::FutureCursor)) => {
+        eprintln!("The cursor was in the future.");
+        *last_cursor = None;
+        break;
+      }
+      Err(SubscriptionError::Other(Error::ConsumerTooSlow)) => {
+        eprintln!("The consumer could not keep up.");
+        *last_cursor = None;
+        break;
+      }
+    };
 
-    if let ProcessedData::Commit(c) = data {
-      let ProcessedCommitData {
-        too_big,
-        repo,
-        commit,
-        ops,
-      } = c;
-
-      for r in ops {
-        let Operation {
-          action,
-          path,
-          record,
-        } = r;
-        if let Some(record) = record {
-          println!(
-            "
-            \n\n################  {} @ {}  ################\n\
+    if let ProcessedData::Commit(ProcessedCommitData { repo, commit, ops }) = data {
+      if let Some(ops) = ops {
+        for r in ops {
+          let Operation {
+            action,
+            path,
+            record,
+          } = r;
+          let print = format!(
+            "\n\n\n#################################  {}  ##################################\n\
             - Repository (User DID): {}\n\
-            - Path: {path}\n\
             - Commit CID: {}\n\
-            - Flagged as \"too big\"? {too_big}\n\
-            //-----------------------------------------------------------------------//\n\n\
-            {}
-            ",
+            - Path: {path}\n\
+            - Flagged as \"too big\"? ",
             action.to_uppercase(),
-            record.created_at.as_ref().with_timezone(&Local),
             repo.as_str(),
             commit.0,
-            record.text
           );
-        } else {
-          println!(
-            "
-            \n\n#################################  {}  ##################################\n\
-            - Repository (User DID): {}\n\
-            - Path: {path}\n\
-            - Commit CID: {}\n\
-            - Flagged as \"too big\"? {too_big}\n\
-            //-----------------------------------------------------------------------//\n\n\
-            ",
-            action.to_uppercase(),
-            repo.as_str(),
-            commit.0
-          );
+          if let Some(record) = record {
+            println!(
+              "{}No\n\
+              //-------------------------------- Record Info -------------------------------//\n\n\
+              {:?}",
+              print, record
+            );
+          } else {
+            println!(
+              "{}Yes\n\
+              //---------------------------------------------------------------------------//\n\n",
+              print
+            );
+          }
         }
       }
     }
