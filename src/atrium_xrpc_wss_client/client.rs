@@ -81,24 +81,7 @@ impl<P: Serialize + Send + Sync> WssClient<<StreamKind as Stream>::Item, Error>
     let request = request.body(()).map_err(|_| Error::InvalidUri)?;
     ////
 
-    match connect_async(request).await {
-      Ok((stream, _)) => Ok(stream),
-      Err(e) => {
-        match e {
-          tungstenite::Error::Http(response) => {
-            // TODO: Handle known HTTP errors provided by the ATProto spec. for the handshake request:
-            // 405 Method Not Allowed: Returned to client for non-GET HTTP requests to a stream endpoint.
-            // 426 Upgrade Required: Returned to client if Upgrade header is not included in a request to a stream endpoint.
-            // 429 Too Many Requests: Frequently used for rate-limiting. Client may try again after a delay. Support for the Retry-After header is encouraged.
-            // 500 Internal Server Error: Client may try again after a delay
-            // 501 Not Implemented: Service does not implement WebSockets or streams, at least for this endpoint. Client should not try again.
-            // 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout: Client may try again after a delay
-            eprintln!("HTTP error: {:?}", response);
-            todo!()
-          }
-          _ => Err(e.into()),
-        }
-      }
-    }
+    let (stream, _) = connect_async(request).await?;
+    Ok(stream)
   }
 }

@@ -1,3 +1,4 @@
+use anyhow::bail;
 use atrium_api::com::atproto::sync::subscribe_repos::{self, InfoData};
 use firehose_client::{
   atrium_xrpc_wss::{
@@ -12,10 +13,11 @@ use firehose_client::{
       firehose::Firehose,
       type_defs::{Operation, ProcessedCommitData},
     },
-    XrpcWssClient,
+    Error, XrpcWssClient,
   },
 };
 use futures::StreamExt;
+use tokio_tungstenite::tungstenite;
 
 /// This example demonstrates how to connect to the ATProto Firehose.
 #[tokio::main]
@@ -39,12 +41,28 @@ async fn connect(
     cursor: *last_cursor,
   };
 
-  // Build a new XRPC WSS Client then connects to the API.
+  // Build a new XRPC WSS Client.
   let client = XrpcWssClient::builder()
     .xrpc_uri(xrpc_uri.clone())
     .params(params)
     .build();
-  let connection = client.connect().await?;
+
+  // And then we connect to the API.
+  let connection = match client.connect().await {
+    Ok(connection) => connection,
+    Err(Error::Connection(tungstenite::Error::Http(response))) => {
+      // According to the API documentation, the following status codes are expected and should be treated accordingly:
+      // 405 Method Not Allowed: Returned to client for non-GET HTTP requests to a stream endpoint.
+      // 426 Upgrade Required: Returned to client if Upgrade header is not included in a request to a stream endpoint.
+      // 429 Too Many Requests: Frequently used for rate-limiting. Client may try again after a delay. Support for the Retry-After header is encouraged.
+      // 500 Internal Server Error: Client may try again after a delay
+      // 501 Not Implemented: Service does not implement WebSockets or streams, at least for this endpoint. Client should not try again.
+      // 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout: Client may try again after a delay.
+      // https://atproto.com/specs/event-stream
+      bail!("Status Code was: {response:?}")
+    }
+    Err(e) => bail!(e),
+  };
 
   // Builds a new subscription from the connection, using handler provided
   // by atrium-xrpc-wss-client, the `Firehose`.
@@ -65,8 +83,6 @@ async fn connect(
       Err(SubscriptionError::Abort(reason)) => {
         // This could mean multiple things, all of which are critical errors that require
         // immediate termination of connection.
-
-        // TODO: Add tracing crate logging.
         eprintln!("Aborted: {reason}");
         *last_cursor = None;
         break;

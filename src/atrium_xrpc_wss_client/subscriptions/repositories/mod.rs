@@ -28,10 +28,7 @@ impl Subscription<WssResult, repositories::Error> for Repositories<WssResult> {
             // "Invalid framing or invalid DAG-CBOR encoding are hard errors,
             //  and the client should drop the entire connection instead of skipping the frame."
             // https://atproto.com/specs/event-stream
-
-            // TODO: Add tracing crate logging.
-            eprintln!("Invalid payload: {e:?}. Dropping connection...");
-            yield Err(SubscriptionError::Abort("Received invalid payload".to_string()));
+            yield Err(SubscriptionError::Abort(format!("Received invalid frame. Error: {e:?}")));
             break;
           }
           Some(Ok(Message::Binary(data))) => {
@@ -44,15 +41,13 @@ impl Subscription<WssResult, repositories::Error> for Repositories<WssResult> {
                     // "Invalid framing or invalid DAG-CBOR encoding are hard errors,
                     //  and the client should drop the entire connection instead of skipping the frame."
                     // https://atproto.com/specs/event-stream
-
-                    // TODO: Add tracing crate logging.
-                    eprintln!("Invalid payload: {e:?}. Dropping connection...");
-                    yield Err(SubscriptionError::Abort("Received invalid payload".to_string()));
+                    yield Err(SubscriptionError::Abort(format!("Received invalid payload. Error: {e:?}")));
                     break;
                   },
                 }
               },
               Ok(Frame::Error { error, message }) => {
+                // These follow the lexicon for the `com.atproto.sync.subscribeRepos` XRPC.
                 match &*error {
                   "FutureCursor" => yield Err(SubscriptionError::Other(repositories::Error::FutureCursor)),
                   "ConsumerTooSlow" => yield Err(SubscriptionError::Other(repositories::Error::ConsumerTooSlow)),
@@ -64,29 +59,20 @@ impl Subscription<WssResult, repositories::Error> for Repositories<WssResult> {
                 // "Invalid framing or invalid DAG-CBOR encoding are hard frames::errors,
                 //  and the client should drop the entire connection instead of skipping the frame."
                 // https://atproto.com/specs/event-stream
-
-                // TODO: Add tracing crate logging.
-                eprintln!("Empty payload for header: {ipld:?}. Dropping connection...");
-                yield Err(SubscriptionError::Abort("Received empty payload".to_string()));
+                yield Err(SubscriptionError::Abort(format!("Received empty payload for header: {ipld:?}")));
                 break;
               },
               Err(frames::Error::IpldDecoding(e)) => {
                 // "Invalid framing or invalid DAG-CBOR encoding are hard errors,
                 //  and the client should drop the entire connection instead of skipping the frame."
                 // https://atproto.com/specs/event-stream
-
-                // TODO: Add tracing crate logging.
-                eprintln!("Frame was invalid: {e:?}. Dropping connection...");
-                yield Err(SubscriptionError::Abort("Received frame was invalid".to_string()));
+                yield Err(SubscriptionError::Abort(format!("Received invalid frame. Error: {e:?}")));
                 break;
               },
-              Err(frames::Error::UnknownFrameType(ipld)) => {
+              Err(frames::Error::UnknownFrameType(_)) => {
                 // "Clients should ignore frames with headers that have unknown op or t values.
                 //  Unknown fields in both headers and payloads should be ignored."
                 // https://atproto.com/specs/event-stream
-
-                // TODO: Add tracing crate logging.
-                eprintln!("Unknown frame type: {ipld:?}. Ignoring...");
               },
             }
           }
