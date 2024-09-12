@@ -1,18 +1,18 @@
-use atrium_api::com::atproto::sync::subscribe_repos;
+use atrium_api::com::atproto::sync::subscribe_repos::{self, InfoData};
 use firehose_client::{
   atrium_xrpc_wss::{
     client::{WssClient, XrpcUri},
     subscriptions::{
-      repositories::{Error, ProcessedData, Repositories},
-      SubscriptionError,
+      repositories::{ProcessedData, Repositories},
+      ProcessedPayload, SubscriptionError,
     },
   },
   atrium_xrpc_wss_client::{
-    client::XrpcWssClient,
     subscriptions::repositories::{
       firehose::Firehose,
       type_defs::{Operation, ProcessedCommitData},
     },
+    XrpcWssClient,
   },
 };
 use futures::StreamExt;
@@ -25,15 +25,8 @@ async fn main() {
 
   // Caching the last cursor is important.
   // The API has a backfilling mechanism that allows you to resume from where you stopped.
-  let mut last_cursor = None;
-  loop {
-    // Loop to reconnect every time the connection is lost.
-    // Do not do this in production. This is just for demonstration purposes.
-    // Instead, you should handle the error variant
-    if let Err(e) = connect(&mut last_cursor, &xrpc_uri).await {
-      eprintln!("Error: {e:?}");
-    }
-  }
+  let mut last_cursor = Some(1);
+  drop(connect(&mut last_cursor, &xrpc_uri).await);
 }
 
 /// Connects to `ATProto` to receive real-time data.
@@ -53,73 +46,87 @@ async fn connect(
     .build();
   let connection = client.connect().await?;
 
-  // Builds a new subscription from the connection;
+  // Builds a new subscription from the connection, using handler provided
+  // by atrium-xrpc-wss-client, the `Firehose`.
   let mut subscription = Repositories::builder()
     .connection(connection)
-    .handler(Firehose) // Using the implemented `Firehose` handler.
+    .handler(Firehose)
     .build();
 
   // Receive payloads by calling `StreamExt::next()`.
   while let Some(payload) = subscription.next().await {
     let data = match payload {
-      Ok(payload) => {
-        *last_cursor = Some(payload.seq);
-        payload.data
+      Ok(ProcessedPayload { seq, data }) => {
+        if let Some(seq) = seq {
+          *last_cursor = Some(seq);
+        }
+        data
       }
-      Err(SubscriptionError::Abort(err)) => {
+      Err(SubscriptionError::Abort(reason)) => {
+        // This could mean multiple things, all of which are critical errors that require
+        // immediate termination of connection.
+
         // TODO: Add tracing crate logging.
-        eprintln!("Aborted: {err}");
+        eprintln!("Aborted: {reason}");
         *last_cursor = None;
         break;
       }
-      Err(SubscriptionError::Other(Error::FutureCursor)) => {
-        eprintln!("The cursor was in the future.");
-        *last_cursor = None;
-        break;
-      }
-      Err(SubscriptionError::Other(Error::ConsumerTooSlow)) => {
-        eprintln!("The consumer could not keep up.");
+      Err(e) => {
+        // Errors such as `FutureCursor` and `ConsumerTooSlow` can be dealt with here.
+        eprintln!("{e:?}");
         *last_cursor = None;
         break;
       }
     };
 
-    if let ProcessedData::Commit(ProcessedCommitData { repo, commit, ops }) = data {
-      if let Some(ops) = ops {
-        for r in ops {
-          let Operation {
-            action,
-            path,
-            record,
-          } = r;
-          let print = format!(
-            "\n\n\n#################################  {}  ##################################\n\
-            - Repository (User DID): {}\n\
-            - Commit CID: {}\n\
-            - Path: {path}\n\
-            - Flagged as \"too big\"? ",
-            action.to_uppercase(),
-            repo.as_str(),
-            commit.0,
-          );
-          if let Some(record) = record {
-            println!(
-              "{}No\n\
-              //-------------------------------- Record Info -------------------------------//\n\n\
-              {:?}",
-              print, record
-            );
-          } else {
-            println!(
-              "{}Yes\n\
-              //---------------------------------------------------------------------------//\n\n",
-              print
-            );
-          }
-        }
+    match data {
+      ProcessedData::Commit(data) => beauty_print_commit(data),
+      ProcessedData::Info(InfoData { message, name }) => {
+        println!("Received info. Message: {message:?}; Name: {name}.");
       }
-    }
+      _ => { /* Ignored */ }
+    };
   }
 
   Ok(())
+}
+
+fn beauty_print_commit(data: ProcessedCommitData) {
+  let ProcessedCommitData {
+    repo, commit, ops, ..
+  } = data;
+  if let Some(ops) = ops {
+    for r in ops {
+      let Operation {
+        action,
+        path,
+        record,
+      } = r;
+      let print = format!(
+        "\n\n\n#################################  {}  ##################################\n\
+        - Repository (User DID): {}\n\
+        - Commit CID: {}\n\
+        - Path: {path}\n\
+        - Flagged as \"too big\"? ",
+        action.to_uppercase(),
+        repo.as_str(),
+        commit.0,
+      );
+      // Record is only `None` when the commit was flagged as "too big".
+      if let Some(record) = record {
+        println!(
+          "{}No\n\
+          //-------------------------------- Record Info -------------------------------//\n\n\
+          {:?}",
+          print, record
+        );
+      } else {
+        println!(
+          "{}Yes\n\
+          //---------------------------------------------------------------------------//\n\n",
+          print
+        );
+      }
+    }
+  }
 }

@@ -50,12 +50,17 @@ impl TryFrom<Ipld> for FrameHeader {
 }
 
 /// Represents a frame sent by a subscription. It's the second [`Ipld`] object in a Binary payload sent by a subscription.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+#[serde(untagged)]
 pub enum Frame {
   Message {
     t: String,
     data: Vec<u8>,
   },
+  // Error payloads all have the following fields:
+  // - error (string, required): the error type name, with no namespace or # prefix
+  // - message (string, optional): a description of the error
+  // According to the docs (https://atproto.com/specs/event-stream)
   Error {
     error: String,
     message: Option<String>,
@@ -81,18 +86,7 @@ impl TryFrom<Vec<u8>> for Frame {
 
     match FrameHeader::try_from(header)? {
       FrameHeader::Message { t } => Ok(Self::Message { t, data }),
-      FrameHeader::Error => {
-        #[derive(Deserialize)]
-        struct ErrorFrame {
-          error: String,
-          message: Option<String>,
-        }
-        let err: ErrorFrame = serde_ipld_dagcbor::from_reader(data.as_slice())?;
-        Ok(Self::Error {
-          error: err.error,
-          message: err.message,
-        })
-      }
+      FrameHeader::Error => Ok(serde_ipld_dagcbor::from_reader(data.as_slice())?),
     }
   }
 }

@@ -2,7 +2,10 @@
 
 use atrium_api::{
   record::KnownRecord,
-  types::{string::Did, CidLink},
+  types::{
+    string::{Datetime, Did},
+    CidLink,
+  },
 };
 
 // region: Commit
@@ -12,6 +15,10 @@ pub struct ProcessedCommitData {
   pub commit: CidLink,
   // `ops` can be `None` if the commit is marked as `too_big`.
   pub ops: Option<Vec<Operation>>,
+  pub blobs: Vec<CidLink>,
+  pub rev: String,
+  pub since: Option<String>,
+  pub time: Datetime,
 }
 #[derive(Debug)]
 pub struct Operation {
@@ -45,8 +52,3 @@ pub struct ProcessedMigrateData {}
 #[derive(Debug)]
 pub struct ProcessedTombstoneData {}
 // endregion: Tombstone
-
-// region: Info
-#[derive(Debug)]
-pub struct ProcessedInfoData {}
-// endregion: Info

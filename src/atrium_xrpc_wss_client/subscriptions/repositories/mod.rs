@@ -24,7 +24,7 @@ impl Subscription<WssResult, repositories::Error> for Repositories<WssResult> {
       loop {
         match connection.next().await {
           None => break, // Server dropped connection
-          Some(Err(e)) => {
+          Some(Err(e)) => { // WebSocket error
             // "Invalid framing or invalid DAG-CBOR encoding are hard errors,
             //  and the client should drop the entire connection instead of skipping the frame."
             // https://atproto.com/specs/event-stream
@@ -38,13 +38,13 @@ impl Subscription<WssResult, repositories::Error> for Repositories<WssResult> {
             match Frame::try_from(data) {
               Ok(Frame::Message { t, data: payload }) => {
                 match handler.handle_payload(t, payload).await {
-                  Ok(Some(res)) => yield Ok(res),
+                  Ok(Some(res)) => yield Ok(res), // Payload was successfully handled.
                   Ok(None) => {}, // Payload was ignored by Handler.
                   Err(e) => {
                     // "Invalid framing or invalid DAG-CBOR encoding are hard errors,
                     //  and the client should drop the entire connection instead of skipping the frame."
                     // https://atproto.com/specs/event-stream
-  
+
                     // TODO: Add tracing crate logging.
                     eprintln!("Invalid payload: {e:?}. Dropping connection...");
                     yield Err(SubscriptionError::Abort("Received invalid payload".to_string()));
@@ -53,17 +53,18 @@ impl Subscription<WssResult, repositories::Error> for Repositories<WssResult> {
                 }
               },
               Ok(Frame::Error { error, message }) => {
-                eprintln!("Error Frame. {error}. Message: {message:?}");
-                // TODO: Handle error frames.
-                // yield Err(SubscriptionError::Other(repositories::Error::ConsumerTooSlow));
-                // yield Err(SubscriptionError::Other(repositories::Error::FutureCursor));
+                match &*error {
+                  "FutureCursor" => yield Err(SubscriptionError::Other(repositories::Error::FutureCursor)),
+                  "ConsumerTooSlow" => yield Err(SubscriptionError::Other(repositories::Error::ConsumerTooSlow)),
+                  _ => yield Err(SubscriptionError::Unknown(format!("Unknown Error Frame. Error: {error}. Message: {message:?}"))),
+                }
                 break;
               },
               Err(frames::Error::EmptyPayload(ipld)) => {
                 // "Invalid framing or invalid DAG-CBOR encoding are hard frames::errors,
                 //  and the client should drop the entire connection instead of skipping the frame."
                 // https://atproto.com/specs/event-stream
-  
+
                 // TODO: Add tracing crate logging.
                 eprintln!("Empty payload for header: {ipld:?}. Dropping connection...");
                 yield Err(SubscriptionError::Abort("Received empty payload".to_string()));
@@ -73,7 +74,7 @@ impl Subscription<WssResult, repositories::Error> for Repositories<WssResult> {
                 // "Invalid framing or invalid DAG-CBOR encoding are hard errors,
                 //  and the client should drop the entire connection instead of skipping the frame."
                 // https://atproto.com/specs/event-stream
-  
+
                 // TODO: Add tracing crate logging.
                 eprintln!("Frame was invalid: {e:?}. Dropping connection...");
                 yield Err(SubscriptionError::Abort("Received frame was invalid".to_string()));
@@ -83,7 +84,7 @@ impl Subscription<WssResult, repositories::Error> for Repositories<WssResult> {
                 // "Clients should ignore frames with headers that have unknown op or t values.
                 //  Unknown fields in both headers and payloads should be ignored."
                 // https://atproto.com/specs/event-stream
-  
+
                 // TODO: Add tracing crate logging.
                 eprintln!("Unknown frame type: {ipld:?}. Ignoring...");
               },

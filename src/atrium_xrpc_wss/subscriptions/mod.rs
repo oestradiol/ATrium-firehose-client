@@ -19,9 +19,7 @@ pub trait ConnectionHandler {
   /// [`Result<Option<T>>`] like:
   /// - `Ok(Some(processedPayload))` where `processedPayload` is [`ProcessedPayload<ConnectionHandler::HandledData>`](ProcessedPayload)
   ///   if the payload was successfully processed.
-  ///
   /// - `Ok(None)` if the payload was ignored.
-  ///
   /// - `Err(e)` where `e` is [`ConnectionHandler::HandlingError`] if an error occurred while processing the payload.
   fn handle_payload(
     &self,
@@ -48,7 +46,7 @@ pub trait Subscription<ConnectionPayload, Error: 'static + Send + Sync + Debug> 
 /// This struct represents a processed payload.
 /// It contains the sequence number (cursor) and the final processed data.
 pub struct ProcessedPayload<Kind> {
-  pub seq: i64,
+  pub seq: Option<i64>, // Option to allow for the absence of a sequence number, like in the case of #info.
   pub data: Kind,
 }
 
@@ -63,16 +61,21 @@ impl<Kind> ProcessedPayload<Kind> {
 }
 
 /// An error type that represents a subscription error.
-/// 
+///
 /// `Abort` is a hard error, and the subscription should cancel.
 /// This follows the [`ATProto Specs`](https://atproto.com/specs/event-stream).
-/// 
+///
+/// `Unknown` is an error that is not recognized by the subscription.
+/// This can be used to handle unexpected errors.
+///
 /// `Other` is an error specific to the subscription type.
 /// This can be used to handle different kinds of errors, following the lexicon.
 #[derive(Debug, thiserror::Error)]
 pub enum SubscriptionError<T> {
   #[error("Critical Subscription Error: {0}")]
   Abort(String),
-  #[error("Subscription Error: {0}")]
+  #[error("Unknown Subscription Error: {0}")]
+  Unknown(String),
+  #[error(transparent)]
   Other(T),
 }

@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, io::Cursor};
 
 use atrium_api::{
-  com::atproto::sync::subscribe_repos::{self, CommitData, RepoOpData},
+  com::atproto::sync::subscribe_repos::{self, CommitData, InfoData, RepoOpData},
   record::KnownRecord,
   types::Object,
 };
@@ -81,12 +81,16 @@ impl Handler for Firehose {
     payload: subscribe_repos::Commit,
   ) -> Result<Option<ProcessedPayload<Self::ProcessedCommitData>>, Self::HandlingError> {
     let CommitData {
-      seq,
-      too_big,
-      repo,
+      blobs,
+      blocks,
       commit,
       ops,
-      blocks,
+      repo,
+      rev,
+      seq,
+      since,
+      time,
+      too_big,
       ..
     } = payload.data;
 
@@ -111,11 +115,15 @@ impl Handler for Firehose {
     };
 
     Ok(Some(ProcessedPayload {
-      seq,
+      seq: Some(seq),
       data: Self::ProcessedCommitData {
-        repo,
-        commit,
         ops: ops_opt,
+        blobs,
+        commit,
+        repo,
+        rev,
+        since,
+        time,
       },
     }))
   }
@@ -160,12 +168,15 @@ impl Handler for Firehose {
     Ok(None) // TODO: Implement
   }
 
-  type ProcessedInfoData = type_defs::ProcessedInfoData;
+  type ProcessedInfoData = InfoData;
   async fn process_info(
     &self,
     payload: subscribe_repos::Info,
   ) -> Result<Option<ProcessedPayload<Self::ProcessedInfoData>>, Self::HandlingError> {
-    Ok(None) // TODO: Implement
+    Ok(Some(ProcessedPayload {
+      seq: None,
+      data: payload.data,
+    }))
   }
 }
 
